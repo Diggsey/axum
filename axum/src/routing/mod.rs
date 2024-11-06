@@ -37,7 +37,10 @@ pub(crate) mod url_params;
 #[cfg(test)]
 mod tests;
 
-pub use self::{into_make_service::IntoMakeService, method_filter::MethodFilter, route::Route};
+pub use self::{
+    into_make_service::IntoMakeService, method_filter::MethodFilter, route::Route,
+    url_params::clear_url_params,
+};
 
 pub use self::method_routing::{
     any, any_service, delete, delete_service, get, get_service, head, head_service, on, on_service,
