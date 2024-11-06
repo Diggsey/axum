@@ -45,3 +45,8 @@ pub(super) fn insert_url_params(extensions: &mut Extensions, params: Params) {
         }
     }
 }
+
+/// Removes URL parameters from the request extensions.
+pub fn clear_url_params(extensions: &mut Extensions) {
+    extensions.remove::<UrlParams>();
+}
