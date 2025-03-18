@@ -13,7 +13,7 @@ use axum_core::{
     response::{IntoResponse, Response},
     RequestPartsExt as _,
 };
-use http::{request::Parts, StatusCode};
+use http::{request::Parts, Extensions, StatusCode};
 use serde::de::DeserializeOwned;
 use std::{fmt, sync::Arc};
 
@@ -504,7 +504,21 @@ where
     type Rejection = RawPathParamsRejection;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let params = match parts.extensions.get::<UrlParams>() {
+        Self::from_request_extensions(&parts.extensions)
+    }
+}
+
+impl RawPathParams {
+    /// Get an iterator over the path parameters.
+    pub fn iter(&self) -> RawPathParamsIter<'_> {
+        self.into_iter()
+    }
+
+    /// Extract the raw URL params from a request synchronously
+    pub fn from_request_extensions(
+        extensions: &Extensions,
+    ) -> Result<Self, RawPathParamsRejection> {
+        let params = match extensions.get::<UrlParams>() {
             Some(UrlParams::Params(params)) => params,
             Some(UrlParams::InvalidUtf8InPathParam { key }) => {
                 return Err(InvalidUtf8InPathParam {
@@ -516,15 +530,7 @@ where
                 return Err(MissingPathParams.into());
             }
         };
-
         Ok(Self(params.clone()))
-    }
-}
-
-impl RawPathParams {
-    /// Get an iterator over the path parameters.
-    pub fn iter(&self) -> RawPathParamsIter<'_> {
-        self.into_iter()
     }
 }
 
