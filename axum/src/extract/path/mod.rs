@@ -13,7 +13,7 @@ use axum_core::{
     response::{IntoResponse, Response},
     RequestPartsExt as _,
 };
-use http::{request::Parts, StatusCode};
+use http::{request::Parts, Extensions, StatusCode};
 use serde::de::DeserializeOwned;
 use std::{fmt, sync::Arc};
 
@@ -162,27 +162,30 @@ where
     type Rejection = PathRejection;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let params = match parts.extensions.get::<UrlParams>() {
-            Some(UrlParams::Params(params)) => params,
-            Some(UrlParams::InvalidUtf8InPathParam { key }) => {
-                let err = PathDeserializationError {
-                    kind: ErrorKind::InvalidUtf8InPathParam {
-                        key: key.to_string(),
-                    },
-                };
-                let err = FailedToDeserializePathParams(err);
-                return Err(err.into());
+        // Extracted into separate fn so it's only compiled once for all T.
+        fn get_params(parts: &Parts) -> Result<&[(Arc<str>, PercentDecodedStr)], PathRejection> {
+            match parts.extensions.get::<UrlParams>() {
+                Some(UrlParams::Params(params)) => Ok(params),
+                Some(UrlParams::InvalidUtf8InPathParam { key }) => {
+                    let err = PathDeserializationError {
+                        kind: ErrorKind::InvalidUtf8InPathParam {
+                            key: key.to_string(),
+                        },
+                    };
+                    Err(FailedToDeserializePathParams(err).into())
+                }
+                None => Err(MissingPathParams.into()),
             }
-            None => {
-                return Err(MissingPathParams.into());
-            }
-        };
+        }
 
-        T::deserialize(de::PathDeserializer::new(params))
-            .map_err(|err| {
-                PathRejection::FailedToDeserializePathParams(FailedToDeserializePathParams(err))
-            })
-            .map(Path)
+        fn failed_to_deserialize_path_params(err: PathDeserializationError) -> PathRejection {
+            PathRejection::FailedToDeserializePathParams(FailedToDeserializePathParams(err))
+        }
+
+        match T::deserialize(de::PathDeserializer::new(get_params(parts)?)) {
+            Ok(val) => Ok(Path(val)),
+            Err(e) => Err(failed_to_deserialize_path_params(e)),
+        }
     }
 }
 
@@ -501,7 +504,21 @@ where
     type Rejection = RawPathParamsRejection;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let params = match parts.extensions.get::<UrlParams>() {
+        Self::from_request_extensions(&parts.extensions)
+    }
+}
+
+impl RawPathParams {
+    /// Get an iterator over the path parameters.
+    pub fn iter(&self) -> RawPathParamsIter<'_> {
+        self.into_iter()
+    }
+
+    /// Extract the raw URL params from a request synchronously
+    pub fn from_request_extensions(
+        extensions: &Extensions,
+    ) -> Result<Self, RawPathParamsRejection> {
+        let params = match extensions.get::<UrlParams>() {
             Some(UrlParams::Params(params)) => params,
             Some(UrlParams::InvalidUtf8InPathParam { key }) => {
                 return Err(InvalidUtf8InPathParam {
@@ -513,15 +530,7 @@ where
                 return Err(MissingPathParams.into());
             }
         };
-
         Ok(Self(params.clone()))
-    }
-}
-
-impl RawPathParams {
-    /// Get an iterator over the path parameters.
-    pub fn iter(&self) -> RawPathParamsIter<'_> {
-        self.into_iter()
     }
 }
 
@@ -978,8 +987,8 @@ mod tests {
         );
 
         let client = TestClient::new(app);
-        let res = client.get("/resources/123123-123-123123").await;
-        let body = res.text().await;
+        let response = client.get("/resources/123123-123-123123").await;
+        let body = response.text().await;
         assert_eq!(
             body,
             "Invalid URL: Cannot parse `res` with value `123123-123-123123`: UUID parsing failed: invalid group count: expected 5, found 3"
@@ -999,8 +1008,8 @@ mod tests {
         );
 
         let client = TestClient::new(app);
-        let res = client.get("/resources/456456-123-456456/sub/123").await;
-        let body = res.text().await;
+        let response = client.get("/resources/456456-123-456456/sub/123").await;
+        let body = response.text().await;
         assert_eq!(
             body,
             "Invalid URL: Cannot parse `res` with value `456456-123-456456`: UUID parsing failed: invalid group count: expected 5, found 3"

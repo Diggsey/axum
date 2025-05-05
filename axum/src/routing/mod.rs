@@ -37,7 +37,10 @@ pub(crate) mod url_params;
 #[cfg(test)]
 mod tests;
 
-pub use self::{into_make_service::IntoMakeService, method_filter::MethodFilter, route::Route};
+pub use self::{
+    into_make_service::IntoMakeService, method_filter::MethodFilter, route::Route,
+    url_params::clear_url_params,
+};
 
 pub use self::method_routing::{
     any, any_service, connect, connect_service, delete, delete_service, get, get_service, head,
@@ -58,6 +61,12 @@ macro_rules! panic_on_err {
 pub(crate) struct RouteId(u32);
 
 /// The router type for composing handlers and services.
+///
+/// `Router<S>` means a router that is _missing_ a state of type `S` to be able
+/// to handle requests. Thus, only `Router<()>` (i.e. without missing state) can
+/// be passed to [`serve`]. See [`Router::with_state`] for more details.
+///
+/// [`serve`]: crate::serve()
 #[must_use]
 pub struct Router<S = ()> {
     inner: Arc<RouterInner<S>>,
@@ -121,7 +130,7 @@ macro_rules! tap_inner {
         #[allow(redundant_semicolons)]
         {
             let mut $inner = $self_.into_inner();
-            $($stmt)*
+            $($stmt)*;
             Router {
                 inner: Arc::new($inner),
             }
@@ -371,7 +380,22 @@ where
     {
         tap_inner!(self, mut this => {
             this.path_router
-                .method_not_allowed_fallback(handler.clone())
+                .method_not_allowed_fallback(handler.clone());
+        })
+    }
+
+    /// Reset the fallback to its default.
+    ///
+    /// Useful to merge two routers with fallbacks, as [`merge`] doesn't allow
+    /// both routers to have an explicit fallback. Use this method to remove the
+    /// one you want to discard before merging.
+    ///
+    /// [`merge`]: Self::merge
+    pub fn reset_fallback(self) -> Self {
+        tap_inner!(self, mut this => {
+            this.fallback_router = PathRouter::new_fallback();
+            this.default_fallback = true;
+            this.catch_all_fallback = Fallback::Default(Route::new(NotFound));
         })
     }
 

@@ -26,7 +26,7 @@ where
     Rt: Send + 'static,
     Lt: Send + 'static,
 {
-    // this puts `futures_util` in our public API but thats fine in axum-extra
+    // this puts `futures_util` in our public API but that's fine in axum-extra
     type Future = EitherFuture<
         Map<L::Future, fn(<L::Future as Future>::Output) -> Response>,
         Map<R::Future, fn(<R::Future as Future>::Output) -> Response>,
@@ -62,13 +62,13 @@ where
     Rt::Rejection: Send,
     S: Send + Sync + 'static,
 {
-    // this puts `futures_util` in our public API but thats fine in axum-extra
+    // this puts `futures_util` in our public API but that's fine in axum-extra
     type Future = BoxFuture<'static, Response>;
 
     fn call(self, req: Request, state: S) -> Self::Future {
-        Box::pin(async move {
-            let (mut parts, body) = req.into_parts();
+        let (mut parts, body) = req.into_parts();
 
+        Box::pin(async move {
             if let Ok(lt) = Lt::from_request_parts(&mut parts, &state).await {
                 return self.lhs.call(lt, state).await;
             }
